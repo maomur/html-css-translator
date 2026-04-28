@@ -255,6 +255,9 @@
   <div class="panel">
     <div class="panel-header">
       <span class="panel-title">Input</span>
+      <div class="panel-actions">
+        <button class="btn-sm" id="btn-clear">Clear</button>
+      </div>
     </div>
     <div class="panel-body">
       <textarea id="input-area" placeholder="Paste HTML/CSS here…" spellcheck="false"></textarea>
@@ -304,6 +307,7 @@
   const btnCode = document.getElementById("btn-code");
   const btnPreview = document.getElementById("btn-preview");
   const btnCopy = document.getElementById("btn-copy");
+  const btnClear = document.getElementById("btn-clear");
   const inputCount = document.getElementById("input-count");
   const outputCount = document.getElementById("output-count");
   const spinner = document.getElementById("spinner");
@@ -351,6 +355,17 @@
   btnPreview.addEventListener("click", () => {
     if (!translatedHtml) return;
     setView("preview");
+  });
+
+  // Clear
+  btnClear.addEventListener("click", () => {
+    inputArea.value = "";
+    inputCount.textContent = "0 chars";
+    translatedHtml = "";
+    outputPre.innerHTML = `<span style="color:var(--text-dim)">Translated HTML will appear here…</span>`;
+    outputCount.textContent = "0 chars";
+    previewFrame.srcdoc = "";
+    if (viewMode === "preview") setView("code");
   });
 
   // Copy
