@@ -48,6 +48,12 @@ def translate():
             ],
         )
         translated = message.content[0].text.strip()
+        # Strip markdown code fences the model occasionally adds
+        if translated.startswith("```"):
+            translated = translated.split("\n", 1)[-1]
+        if translated.endswith("```"):
+            translated = translated.rsplit("```", 1)[0]
+        translated = translated.strip()
         return jsonify({"translated_html": translated})
     except anthropic.AuthenticationError:
         return jsonify({"error": "Invalid API key. Check your .env file."}), 500
