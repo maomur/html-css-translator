@@ -596,7 +596,7 @@
       requestAnimationFrame(() => { editor.setSize("100%", "100%"); editor.refresh(); });
     } else {
       cmWrapper.style.display = "none";
-      inputPreviewFrame.style.display = "";
+      inputPreviewFrame.style.display = "block";
       btnInputCode.classList.remove("active");
       btnInputPreview.classList.add("active");
       inputPreviewFrame.srcdoc = editor.getValue();
@@ -618,7 +618,7 @@
       btnCode.classList.add("active");
       btnPreview.classList.remove("active");
     } else {
-      previewFrame.style.display = "";
+      previewFrame.style.display = "block";
       btnCode.classList.remove("active");
       btnPreview.classList.add("active");
       previewFrame.srcdoc = translatedHtml;
