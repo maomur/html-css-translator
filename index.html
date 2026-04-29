@@ -4,6 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HTML/CSS Translator</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/lint/lint.min.css">
+
   <style>
     :root {
       --bg: #1a1a2e;
@@ -15,8 +20,10 @@
       --text: #a8b2d8;
       --text-bright: #ccd6f6;
       --text-dim: #5a6a8a;
-      --mono: 'Courier New', Courier, monospace;
+      --mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
       --radius: 8px;
+      --success: #64ffda;
+      --warning: #ffd080;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,12 +32,12 @@
       background: var(--bg);
       color: var(--text);
       font-family: 'Segoe UI', system-ui, sans-serif;
-      min-height: 100vh;
+      height: 100vh;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
-    /* ── Header ── */
     header {
       background: var(--panel);
       border-bottom: 1px solid var(--border);
@@ -39,6 +46,7 @@
       align-items: center;
       gap: 16px;
       flex-wrap: wrap;
+      flex-shrink: 0;
     }
 
     h1 {
@@ -48,15 +56,9 @@
       letter-spacing: 0.03em;
       margin-right: auto;
     }
-
     h1 span { color: var(--accent); }
 
-    .lang-controls {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
+    .lang-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
     label {
       font-size: 0.78rem;
@@ -108,11 +110,10 @@
     .loading .spinner { display: block; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Main panels ── */
     main {
       flex: 1;
       display: flex;
-      gap: 0;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -122,6 +123,7 @@
       flex-direction: column;
       border-right: 1px solid var(--border);
       min-width: 0;
+      overflow: hidden;
     }
     .panel:last-child { border-right: none; }
 
@@ -133,7 +135,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      flex-wrap: wrap;
+      flex-shrink: 0;
     }
 
     .panel-title {
@@ -144,54 +146,90 @@
       color: var(--text-dim);
     }
 
-    .panel-actions { display: flex; gap: 8px; align-items: center; }
+    .panel-actions { display: flex; gap: 6px; align-items: center; }
 
     .btn-sm {
       background: var(--panel2);
       color: var(--text);
       border: 1px solid var(--border);
-      padding: 4px 12px;
+      padding: 4px 10px;
       border-radius: 5px;
-      font-size: 0.78rem;
+      font-size: 0.75rem;
       cursor: pointer;
       transition: border-color 0.2s, color 0.2s;
+      white-space: nowrap;
     }
     .btn-sm:hover { border-color: var(--accent); color: var(--text-bright); }
     .btn-sm.active { border-color: var(--accent); color: var(--accent); }
+    .btn-sm.btn-format { color: var(--text-dim); }
+    .btn-sm.btn-format:hover { border-color: var(--success); color: var(--success); }
 
+    /* Panel body: relative container; all children fill it absolutely */
     .panel-body {
       flex: 1;
-      display: flex;
-      flex-direction: column;
+      min-height: 0;
+      position: relative;
       overflow: hidden;
-      padding: 0;
     }
 
-    textarea {
-      flex: 1;
-      width: 100%;
-      background: var(--panel2);
-      color: var(--text-bright);
-      border: none;
-      outline: none;
-      resize: none;
-      font-family: var(--mono);
-      font-size: 0.85rem;
-      line-height: 1.6;
-      padding: 16px;
-      tab-size: 2;
+    /* Shared fill rule */
+    #cm-wrapper,
+    #input-preview-frame,
+    #code-view,
+    #preview-frame,
+    #error-panel {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
     }
-    textarea::placeholder { color: var(--text-dim); }
 
-    .code-view {
-      flex: 1;
-      overflow: auto;
-      background: var(--panel2);
+    /* CodeMirror */
+    #cm-wrapper { overflow: hidden; }
+
+    .CodeMirror {
+      height: 100% !important;
+      font-family: var(--mono) !important;
+      font-size: 0.84rem !important;
+      line-height: 1.6 !important;
     }
+
+    .CodeMirror-gutters {
+      background: #080f1e !important;
+      border-right: 1px solid #1a2e4a !important;
+    }
+
+    .CodeMirror-linenumber {
+      color: #354a6a !important;
+      padding: 0 10px 0 6px !important;
+    }
+
+    .CodeMirror-cursor { border-left: 2px solid var(--accent) !important; }
+    .CodeMirror-selected { background: rgba(233,69,96,0.14) !important; }
+    .CodeMirror-activeline-background { background: rgba(15,52,96,0.35) !important; }
+    .CodeMirror-matchingtag { background: rgba(233,69,96,0.18); border-radius: 2px; }
+
+    .CodeMirror-lint-mark-error { border-bottom: 2px wavy var(--accent); }
+    .CodeMirror-lint-mark-warning { border-bottom: 2px wavy var(--warning); }
+    .CodeMirror-lint-marker-error { color: var(--accent) !important; font-size: 0.8rem; }
+    .CodeMirror-lint-marker-warning { color: var(--warning) !important; font-size: 0.8rem; }
+
+    .CodeMirror-lint-tooltip {
+      background: #0a1524 !important;
+      border: 1px solid var(--accent) !important;
+      color: var(--text-bright) !important;
+      font-family: var(--mono) !important;
+      font-size: 0.76rem !important;
+      border-radius: 4px !important;
+      padding: 6px 10px !important;
+      max-width: 320px;
+      line-height: 1.5;
+    }
+
+    /* Output */
+    #code-view { overflow: auto; background: var(--panel2); }
 
     pre {
       font-family: var(--mono);
-      font-size: 0.85rem;
+      font-size: 0.84rem;
       line-height: 1.6;
       color: var(--text-bright);
       padding: 16px;
@@ -200,12 +238,85 @@
       min-height: 100%;
     }
 
-    iframe {
-      flex: 1;
-      width: 100%;
-      border: none;
-      background: #fff;
+    #preview-frame,
+    #input-preview-frame { background: #fff; border: none; }
+
+    /* Error panel */
+    #error-panel {
+      overflow: auto;
+      background: var(--panel2);
+      padding: 28px 28px 20px;
+      display: none;
     }
+    #error-panel.visible { display: block; }
+
+    .error-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(233,69,96,0.2);
+    }
+
+    .error-icon {
+      width: 36px; height: 36px;
+      background: rgba(233,69,96,0.1);
+      border: 1px solid rgba(233,69,96,0.45);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .error-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.02em;
+    }
+
+    .error-subtitle {
+      font-size: 0.73rem;
+      color: var(--text-dim);
+      margin-top: 3px;
+    }
+
+    .error-msg-box {
+      background: rgba(233,69,96,0.06);
+      border: 1px solid rgba(233,69,96,0.18);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 13px 16px;
+      margin-bottom: 20px;
+      color: #ff8099;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.7;
+      word-break: break-word;
+    }
+
+    .fix-heading {
+      font-size: 0.69rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    .fix-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 9px;
+      font-size: 0.82rem;
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    .fix-arrow { color: var(--warning); flex-shrink: 0; }
 
     .panel-footer {
       background: var(--panel);
@@ -216,16 +327,13 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-shrink: 0;
     }
 
-    .error-msg {
-      color: var(--accent);
-      padding: 16px;
-      font-size: 0.85rem;
-      font-family: var(--mono);
-    }
+    .status-ok { color: var(--success); }
+    .status-error { color: var(--accent); }
+    .status-warning { color: var(--warning); }
 
-    /* ── Responsive ── */
     @media (max-width: 720px) {
       main { flex-direction: column; }
       .panel { border-right: none; border-bottom: 1px solid var(--border); }
@@ -256,14 +364,21 @@
     <div class="panel-header">
       <span class="panel-title">Input</span>
       <div class="panel-actions">
+        <button class="btn-sm btn-format" id="btn-format" title="Format &amp; indent code (Ctrl+Shift+F)">⌥ Format</button>
+        <button class="btn-sm active" id="btn-input-code">Code</button>
+        <button class="btn-sm" id="btn-input-preview">Preview</button>
         <button class="btn-sm" id="btn-clear">Clear</button>
       </div>
     </div>
     <div class="panel-body">
-      <textarea id="input-area" placeholder="Paste HTML/CSS here…" spellcheck="false"></textarea>
+      <div id="cm-wrapper">
+        <textarea id="input-area" spellcheck="false"></textarea>
+      </div>
+      <iframe id="input-preview-frame" style="display:none"
+              sandbox="allow-scripts allow-same-origin" title="Input Preview"></iframe>
     </div>
     <div class="panel-footer">
-      <span>HTML / CSS</span>
+      <span id="lint-status">HTML / CSS</span>
       <span id="input-count">0 chars</span>
     </div>
   </div>
@@ -278,11 +393,23 @@
         <button class="btn-sm" id="btn-copy">Copy</button>
       </div>
     </div>
-    <div class="panel-body" id="output-body">
-      <div class="code-view" id="code-view">
+    <div class="panel-body">
+      <div id="code-view">
         <pre id="output-pre"><span style="color:var(--text-dim)">Translated HTML will appear here…</span></pre>
       </div>
-      <iframe id="preview-frame" style="display:none" sandbox="allow-scripts allow-same-origin" title="Preview"></iframe>
+      <iframe id="preview-frame" style="display:none"
+              sandbox="allow-scripts allow-same-origin" title="Preview"></iframe>
+      <div id="error-panel">
+        <div class="error-header">
+          <div class="error-icon">✕</div>
+          <div>
+            <div class="error-title" id="error-title">Processing Error</div>
+            <div class="error-subtitle" id="error-subtitle">The code could not be processed</div>
+          </div>
+        </div>
+        <div class="error-msg-box" id="error-msg-box"></div>
+        <div id="error-fixes"></div>
+      </div>
     </div>
     <div class="panel-footer">
       <span id="output-label">Translated</span>
@@ -291,32 +418,62 @@
   </div>
 </main>
 
+<!-- CodeMirror 5 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closetag.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/xml-fold.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchtags.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/display/autorefresh.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/lint/lint.min.js"></script>
+<!-- HTMLHint for live linting -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/htmlhint/1.1.4/htmlhint.min.js"></script>
+<!-- js-beautify for code formatting -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.15.1/beautify-html.min.js"></script>
+
 <script>
   const LANGUAGES = [
-    "English", "Spanish", "French", "German", "Italian",
-    "Portuguese", "Dutch", "Polish", "Russian", "Chinese", "Japanese", "Arabic", "Catalan"
+    "English","Spanish","French","German","Italian",
+    "Portuguese","Dutch","Polish","Russian","Chinese","Japanese","Arabic","Catalan"
   ];
 
-  const srcSel = document.getElementById("src-lang");
-  const tgtSel = document.getElementById("tgt-lang");
-  const inputArea = document.getElementById("input-area");
-  const outputPre = document.getElementById("output-pre");
-  const codeView = document.getElementById("code-view");
-  const previewFrame = document.getElementById("preview-frame");
-  const btnTranslate = document.getElementById("btn-translate");
-  const btnCode = document.getElementById("btn-code");
-  const btnPreview = document.getElementById("btn-preview");
-  const btnCopy = document.getElementById("btn-copy");
-  const btnClear = document.getElementById("btn-clear");
-  const inputCount = document.getElementById("input-count");
-  const outputCount = document.getElementById("output-count");
-  const spinner = document.getElementById("spinner");
+  const srcSel            = document.getElementById("src-lang");
+  const tgtSel            = document.getElementById("tgt-lang");
+  const outputPre         = document.getElementById("output-pre");
+  const codeView          = document.getElementById("code-view");
+  const previewFrame      = document.getElementById("preview-frame");
+  const inputPreviewFrame = document.getElementById("input-preview-frame");
+  const cmWrapper         = document.getElementById("cm-wrapper");
+  const btnTranslate      = document.getElementById("btn-translate");
+  const btnCode           = document.getElementById("btn-code");
+  const btnPreview        = document.getElementById("btn-preview");
+  const btnCopy           = document.getElementById("btn-copy");
+  const btnClear          = document.getElementById("btn-clear");
+  const btnFormat         = document.getElementById("btn-format");
+  const btnInputCode      = document.getElementById("btn-input-code");
+  const btnInputPreview   = document.getElementById("btn-input-preview");
+  const inputCount        = document.getElementById("input-count");
+  const outputCount       = document.getElementById("output-count");
+  const spinner           = document.getElementById("spinner");
+  const lintStatus        = document.getElementById("lint-status");
+  const errorPanel        = document.getElementById("error-panel");
+  const errorMsgBox       = document.getElementById("error-msg-box");
+  const errorFixes        = document.getElementById("error-fixes");
+  const errorTitle        = document.getElementById("error-title");
+  const errorSubtitle     = document.getElementById("error-subtitle");
 
   let translatedHtml = "";
-  let viewMode = "code"; // "code" | "preview"
+  let outputViewMode = "code";
+  let inputViewMode  = "code";
 
-  // Populate language dropdowns
-  LANGUAGES.forEach((lang, i) => {
+  // Populate dropdowns
+  LANGUAGES.forEach(lang => {
     const o1 = new Option(lang, lang);
     const o2 = new Option(lang, lang);
     if (lang === "English") o1.selected = true;
@@ -325,25 +482,142 @@
     tgtSel.appendChild(o2);
   });
 
-  // Character counts
-  inputArea.addEventListener("input", () => {
-    inputCount.textContent = inputArea.value.length.toLocaleString() + " chars";
-  });
+  // HTMLHint lint annotations
+  function htmlAnnotations(text, options, cm) {
+    if (!text.trim() || !window.HTMLHint) {
+      lintStatus.textContent = "HTML / CSS";
+      lintStatus.className = "";
+      return [];
+    }
+    let hints;
+    try {
+      hints = window.HTMLHint.verify(text, {
+        "tag-pair":            true,
+        "attr-lowercase":      true,
+        "id-unique":           true,
+        "src-not-empty":       true,
+        "tag-self-close":      false,
+        "attr-value-not-empty":false,
+        "spec-char-escape":    false,
+      });
+    } catch (_) { return []; }
 
-  function updateOutputCount(text) {
-    outputCount.textContent = text.length.toLocaleString() + " chars";
+    let errN = 0, warnN = 0;
+    const annotations = hints.map(h => {
+      h.type === "error" ? errN++ : warnN++;
+      return {
+        from: CodeMirror.Pos(h.line - 1, h.col - 1),
+        to:   CodeMirror.Pos(h.line - 1, h.col),
+        message:  h.message,
+        severity: h.type,
+      };
+    });
+
+    if (errN > 0) {
+      lintStatus.textContent = `✕ ${errN} error${errN > 1 ? "s" : ""}` +
+        (warnN ? ` · ${warnN} warning${warnN > 1 ? "s" : ""}` : "");
+      lintStatus.className = "status-error";
+    } else if (warnN > 0) {
+      lintStatus.textContent = `⚠ ${warnN} warning${warnN > 1 ? "s" : ""}`;
+      lintStatus.className = "status-warning";
+    } else {
+      lintStatus.textContent = "✓ No issues";
+      lintStatus.className = "status-ok";
+    }
+    return annotations;
   }
 
-  // View toggle
-  function setView(mode) {
-    viewMode = mode;
+  // Init CodeMirror
+  const editor = CodeMirror.fromTextArea(document.getElementById("input-area"), {
+    mode:             "htmlmixed",
+    theme:            "dracula",
+    lineNumbers:      true,
+    matchBrackets:    true,
+    autoCloseBrackets:true,
+    autoCloseTags:    true,
+    matchTags:        { bothTags: true },
+    styleActiveLine:  true,
+    autoRefresh:      true,
+    tabSize:          2,
+    indentWithTabs:   false,
+    lineWrapping:     true,
+    gutters:          ["CodeMirror-linenumbers", "CodeMirror-lint-markers"],
+    lint:             { delay: 500, getAnnotations: htmlAnnotations },
+    extraKeys: {
+      "Ctrl-Enter":   () => translate(),
+      "Cmd-Enter":    () => translate(),
+      "Ctrl-Shift-F": () => formatCode(),
+    },
+  });
+
+  // Fill wrapper height with CodeMirror
+  editor.setSize("100%", "100%");
+  const ro = new ResizeObserver(() => editor.setSize("100%", "100%"));
+  ro.observe(cmWrapper);
+
+  editor.on("change", () => {
+    const val = editor.getValue();
+    inputCount.textContent = val.length.toLocaleString() + " chars";
+    if (inputViewMode === "preview") inputPreviewFrame.srcdoc = val;
+  });
+
+  // Format code with js-beautify
+  function formatCode() {
+    const raw = editor.getValue();
+    if (!raw.trim() || !window.html_beautify) return;
+    let formatted = raw;
+    try {
+      formatted = html_beautify(raw, {
+        indent_size:           2,
+        indent_char:           " ",
+        max_preserve_newlines: 1,
+        preserve_newlines:     true,
+        end_with_newline:      false,
+        wrap_line_length:      0,
+        extra_liners:          ["head", "body", "/html"],
+      });
+    } catch (_) {}
+    const cursor = editor.getCursor();
+    editor.setValue(formatted);
+    try { editor.setCursor(cursor); } catch (_) {}
+    editor.refresh();
+  }
+
+  btnFormat.addEventListener("click", formatCode);
+
+  // Input view toggle
+  function setInputView(mode) {
+    inputViewMode = mode;
+    if (mode === "code") {
+      cmWrapper.style.display = "";
+      inputPreviewFrame.style.display = "none";
+      btnInputCode.classList.add("active");
+      btnInputPreview.classList.remove("active");
+      requestAnimationFrame(() => { editor.setSize("100%", "100%"); editor.refresh(); });
+    } else {
+      cmWrapper.style.display = "none";
+      inputPreviewFrame.style.display = "";
+      btnInputCode.classList.remove("active");
+      btnInputPreview.classList.add("active");
+      inputPreviewFrame.srcdoc = editor.getValue();
+    }
+  }
+
+  btnInputCode.addEventListener("click",    () => setInputView("code"));
+  btnInputPreview.addEventListener("click", () => setInputView("preview"));
+
+  // Output view toggle
+  function setOutputView(mode) {
+    outputViewMode = mode;
+    codeView.style.display    = "none";
+    previewFrame.style.display = "none";
+    errorPanel.classList.remove("visible");
+
     if (mode === "code") {
       codeView.style.display = "";
-      previewFrame.style.display = "none";
       btnCode.classList.add("active");
       btnPreview.classList.remove("active");
     } else {
-      codeView.style.display = "none";
       previewFrame.style.display = "";
       btnCode.classList.remove("active");
       btnPreview.classList.add("active");
@@ -351,95 +625,139 @@
     }
   }
 
-  btnCode.addEventListener("click", () => setView("code"));
-  btnPreview.addEventListener("click", () => {
-    if (!translatedHtml) return;
-    setView("preview");
-  });
+  btnCode.addEventListener("click",    () => setOutputView("code"));
+  btnPreview.addEventListener("click", () => { if (translatedHtml) setOutputView("preview"); });
 
   // Clear
   btnClear.addEventListener("click", () => {
-    inputArea.value = "";
+    editor.setValue("");
     inputCount.textContent = "0 chars";
+    lintStatus.textContent = "HTML / CSS";
+    lintStatus.className = "";
     translatedHtml = "";
     outputPre.innerHTML = `<span style="color:var(--text-dim)">Translated HTML will appear here…</span>`;
     outputCount.textContent = "0 chars";
     previewFrame.srcdoc = "";
-    if (viewMode === "preview") setView("code");
+    inputPreviewFrame.srcdoc = "";
+    errorPanel.classList.remove("visible");
+    setOutputView("code");
+    setInputView("code");
   });
 
   // Copy
   btnCopy.addEventListener("click", async () => {
     if (!translatedHtml) return;
-    try {
-      await navigator.clipboard.writeText(translatedHtml);
-      const orig = btnCopy.textContent;
-      btnCopy.textContent = "Copied!";
-      setTimeout(() => { btnCopy.textContent = orig; }, 1500);
-    } catch {
-      // Fallback for non-secure contexts
-      const ta = document.createElement("textarea");
-      ta.value = translatedHtml;
+    try { await navigator.clipboard.writeText(translatedHtml); }
+    catch {
+      const ta = Object.assign(document.createElement("textarea"), { value: translatedHtml });
       document.body.appendChild(ta);
       ta.select();
       document.execCommand("copy");
       ta.remove();
     }
+    const orig = btnCopy.textContent;
+    btnCopy.textContent = "Copied!";
+    setTimeout(() => { btnCopy.textContent = orig; }, 1500);
   });
 
   // Translate
   btnTranslate.addEventListener("click", translate);
-  inputArea.addEventListener("keydown", e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") translate();
-  });
 
   async function translate() {
-    const html = inputArea.value.trim();
+    const html = editor.getValue().trim();
     if (!html) {
-      showError("Please paste some HTML/CSS into the input panel.");
+      showError(
+        "Empty Input", "Nothing to translate",
+        "The input panel is empty. Paste your HTML/CSS code before translating.",
+        ["Paste your HTML or CSS code into the left panel.",
+         "Use the Format button to clean up messy code first."]
+      );
       return;
     }
 
     setLoading(true);
+    errorPanel.classList.remove("visible");
+    codeView.style.display = "";
 
     try {
-      const res = await fetch("/translate", {
-        method: "POST",
+      const res  = await fetch("/translate", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          html,
-          source_lang: srcSel.value,
-          target_lang: tgtSel.value,
-        }),
+        body:    JSON.stringify({ html, source_lang: srcSel.value, target_lang: tgtSel.value }),
       });
-
       const data = await res.json();
 
       if (!res.ok || data.error) {
-        showError(data.error || "Translation failed. Please try again.");
+        const msg = data.error || `Server returned HTTP ${res.status}`;
+        showError("Translation Failed", categorizeStatus(res.status), msg, fixSuggestions(msg, res.status));
         return;
       }
 
       translatedHtml = data.translated_html;
       outputPre.textContent = translatedHtml;
-      updateOutputCount(translatedHtml);
-
-      if (viewMode === "preview") {
-        previewFrame.srcdoc = translatedHtml;
-      }
+      outputCount.textContent = translatedHtml.length.toLocaleString() + " chars";
+      codeView.style.display = "";
+      errorPanel.classList.remove("visible");
+      if (outputViewMode === "preview") previewFrame.srcdoc = translatedHtml;
 
     } catch (err) {
-      showError("Network error: " + err.message);
+      showError("Network Error", "Connection problem", err.message, [
+        "Make sure the server is running and reachable.",
+        "Check your internet connection.",
+        "Reload the page and try again.",
+      ]);
     } finally {
       setLoading(false);
     }
   }
 
-  function showError(msg) {
+  function categorizeStatus(status) {
+    if (status === 429) return "Rate limit reached";
+    if (status === 401 || status === 403) return "Authentication error";
+    if (status === 413) return "Input too large";
+    if (status >= 500) return "Server-side error";
+    if (status >= 400) return "Request error";
+    return "Could not process the code";
+  }
+
+  function fixSuggestions(msg, status) {
+    const tips = [];
+    const low  = (msg || "").toLowerCase();
+    if (status === 429) tips.push("Wait a few seconds — you've hit the API rate limit.");
+    if (status === 401 || status === 403) tips.push("The API key may be missing or invalid. Check the server configuration.");
+    if (status === 413 || low.includes("too large") || low.includes("token")) {
+      tips.push("The code is too large. Split it into smaller sections and translate each one.");
+      tips.push("Remove HTML comments or whitespace to reduce size.");
+    }
+    if (status >= 500) tips.push("This is a server-side error. Wait a moment and try again.");
+    if (low.includes("timeout")) tips.push("The request timed out. Try with a smaller snippet.");
+    if (!tips.length) {
+      tips.push("Verify the HTML is well-formed: no unclosed tags, balanced quotes.");
+      tips.push("Click Format to clean up code structure before translating.");
+      tips.push("Try with a minimal test snippet to narrow down the issue.");
+    }
+    return tips;
+  }
+
+  function showError(titleText, subtitleText, msg, fixes) {
     translatedHtml = "";
-    outputPre.innerHTML = `<span class="error-msg">${escHtml(msg)}</span>`;
-    updateOutputCount("");
-    if (viewMode === "preview") setView("code");
+    outputCount.textContent = "0 chars";
+    codeView.style.display    = "none";
+    previewFrame.style.display = "none";
+    outputViewMode = "code";
+    btnCode.classList.add("active");
+    btnPreview.classList.remove("active");
+
+    errorTitle.textContent    = titleText;
+    errorSubtitle.textContent = subtitleText;
+    errorMsgBox.textContent   = msg;
+
+    errorFixes.innerHTML = (fixes && fixes.length)
+      ? `<div class="fix-heading">How to fix it</div>` +
+        fixes.map(f => `<div class="fix-item"><span class="fix-arrow">→</span><span>${escHtml(f)}</span></div>`).join("")
+      : "";
+
+    errorPanel.classList.add("visible");
   }
 
   function setLoading(on) {
