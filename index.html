@@ -218,6 +218,10 @@
       line-height: 1.5;
     }
 
+    /* Error / warning line highlights */
+    .cm-line-error   { background: rgba(233, 69, 96, 0.12) !important; }
+    .cm-line-warning { background: rgba(255, 208, 128, 0.09) !important; }
+
     /* Problems panel */
     #problems-panel {
       flex-shrink: 0;
@@ -677,11 +681,12 @@
     problemsChevron.textContent = problemsPanel.classList.contains("collapsed") ? "▼" : "▲";
   });
 
-  // ── HTMLHint annotations — only for CodeMirror's visual markers (wavy underlines) ──
+  // ── HTMLHint annotations — for CodeMirror wavy underlines + gutter dots ──
   function htmlAnnotations(text, options, cm) {
     if (!text.trim() || !window.HTMLHint) return [];
+    const result = [];
     try {
-      return window.HTMLHint.verify(text, {
+      window.HTMLHint.verify(text, {
         "tag-pair":             true,
         "attr-lowercase":       true,
         "id-unique":            true,
@@ -689,17 +694,27 @@
         "tag-self-close":       false,
         "attr-value-not-empty": false,
         "spec-char-escape":     false,
-      }).map(h => ({
+      }).forEach(h => result.push({
         from:     CodeMirror.Pos(h.line - 1, h.col - 1),
         to:       CodeMirror.Pos(h.line - 1, h.col),
         message:  h.message,
         severity: h.type,
       }));
-    } catch (_) { return []; }
+    } catch (_) {}
+    try {
+      validateNesting(text).forEach(e => result.push({
+        from:     CodeMirror.Pos(e.line - 1, Math.max(0, e.col - 1)),
+        to:       CodeMirror.Pos(e.line - 1, e.col + 15),
+        message:  e.message,
+        severity: "error",
+      }));
+    } catch (_) {}
+    return result;
   }
 
   // ── Problems panel + footer — driven directly from editor change, independent of lint addon ──
-  let _valTimer = null;
+  let _valTimer    = null;
+  let _markedLines = [];
   function scheduleValidation(text) {
     clearTimeout(_valTimer);
     _valTimer = setTimeout(() => runValidation(text), 400);
@@ -754,6 +769,21 @@
       message:  e.message,
       severity: e.type,
     })));
+
+    // Highlight error/warning lines in the editor
+    _markedLines.forEach(l => {
+      editor.removeLineClass(l, "background", "cm-line-error");
+      editor.removeLineClass(l, "background", "cm-line-warning");
+    });
+    _markedLines = [];
+    const seen = new Set();
+    raw.forEach(e => {
+      const line = e.line - 1;
+      if (line < 0 || line >= editor.lineCount() || seen.has(line)) return;
+      seen.add(line);
+      editor.addLineClass(line, "background", e.type === "error" ? "cm-line-error" : "cm-line-warning");
+      _markedLines.push(line);
+    });
   }
 
   // ── Init CodeMirror ─────────────────────────────────────────────────────────
@@ -877,6 +907,11 @@
     inputPreviewFrame.srcdoc = "";
     errorPanel.classList.remove("visible");
     updateProblemsPanel([]);
+    _markedLines.forEach(l => {
+      editor.removeLineClass(l, "background", "cm-line-error");
+      editor.removeLineClass(l, "background", "cm-line-warning");
+    });
+    _markedLines = [];
     setOutputView("code");
     setInputView("code");
   });
