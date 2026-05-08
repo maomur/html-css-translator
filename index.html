@@ -218,6 +218,61 @@
       line-height: 1.5;
     }
 
+    /* Problems panel */
+    #problems-panel {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      max-height: 160px;
+      transition: max-height 0.18s ease;
+      border-top: 1px solid var(--border);
+    }
+    #problems-panel.collapsed { max-height: 25px; }
+
+    #problems-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 10px 3px 12px;
+      min-height: 25px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.69rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-dim);
+      background: var(--panel);
+      flex-shrink: 0;
+    }
+    #problems-header:hover { color: var(--text); }
+    #problems-chevron { font-size: 0.6rem; }
+
+    #problems-list { overflow-y: auto; flex: 1; }
+
+    .problem-item {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      padding: 2px 12px 2px 10px;
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      line-height: 1.65;
+    }
+    .problem-item:hover { background: rgba(255,255,255,0.04); }
+    .problem-item.p-error  { border-left-color: var(--accent); }
+    .problem-item.p-warning { border-left-color: var(--warning); }
+
+    .p-icon { font-size: 0.62rem; flex-shrink: 0; }
+    .p-icon.p-error   { color: var(--accent); }
+    .p-icon.p-warning { color: var(--warning); }
+
+    .p-loc { color: var(--text-dim); min-width: 46px; flex-shrink: 0; }
+    .p-msg { color: var(--text); }
+
     /* Output */
     #code-view { flex: 1; min-height: 0; overflow: auto; background: var(--panel2); }
 
@@ -370,6 +425,14 @@
       <div id="cm-wrapper">
         <textarea id="input-area" spellcheck="false"></textarea>
       </div>
+      <!-- Problems panel (VS Code-style) -->
+      <div id="problems-panel" class="collapsed">
+        <div id="problems-header">
+          <span id="problems-title">Problems</span>
+          <span id="problems-chevron">▼</span>
+        </div>
+        <div id="problems-list"></div>
+      </div>
       <iframe id="input-preview-frame" style="display:none"
               sandbox="allow-scripts allow-same-origin" title="Input Preview"></iframe>
     </div>
@@ -463,6 +526,11 @@
   const errorFixes        = document.getElementById("error-fixes");
   const errorTitle        = document.getElementById("error-title");
   const errorSubtitle     = document.getElementById("error-subtitle");
+  const problemsPanel     = document.getElementById("problems-panel");
+  const problemsHeader    = document.getElementById("problems-header");
+  const problemsList      = document.getElementById("problems-list");
+  const problemsTitle     = document.getElementById("problems-title");
+  const problemsChevron   = document.getElementById("problems-chevron");
 
   let translatedHtml = "";
   let outputViewMode = "code";
@@ -478,36 +546,180 @@
     tgtSel.appendChild(o2);
   });
 
-  // HTMLHint lint annotations
+  // ── Custom HTML nesting validator ─────────────────────────────────────────
+  const VOID_TAGS = new Set([
+    "area","base","br","col","embed","hr","img","input",
+    "link","meta","param","source","track","wbr"
+  ]);
+  // Content of these tags is not parsed as HTML
+  const RAW_TEXT_TAGS = new Set(["script","style","textarea","title"]);
+
+  function getLineCol(text, index) {
+    const before = text.substring(0, index);
+    const lines  = before.split("\n");
+    return { line: lines.length, col: lines[lines.length - 1].length + 1 };
+  }
+
+  function validateNesting(text) {
+    const errors = [];
+    const stack  = []; // { name, line, col }
+    let inRaw    = null;
+
+    // Matches: comments, doctype, closing tags, opening tags (with optional self-close slash)
+    const re = /<!--[\s\S]*?-->|<!DOCTYPE[^>]*>|<\/\s*([a-zA-Z][a-zA-Z0-9:-]*)\s*>|<([a-zA-Z][a-zA-Z0-9:-]*)(\s[^>]*)?\s*(\/?)>/g;
+    let m;
+
+    while ((m = re.exec(text)) !== null) {
+      const closeTag  = m[1];
+      const openTag   = m[2];
+      const selfClose = m[4];
+
+      if (!closeTag && !openTag) continue; // comment / doctype
+
+      const pos = getLineCol(text, m.index);
+
+      if (closeTag) {
+        const name = closeTag.toLowerCase();
+        if (inRaw) {
+          if (name === inRaw) inRaw = null;
+          continue;
+        }
+        if (stack.length === 0) {
+          errors.push({ line: pos.line, col: pos.col, message: `Unexpected closing tag </${name}>`, type: "error" });
+        } else {
+          const top = stack[stack.length - 1];
+          if (top.name !== name) {
+            // Look for matching opener further down the stack
+            let idx = -1;
+            for (let i = stack.length - 1; i >= 0; i--) {
+              if (stack[i].name === name) { idx = i; break; }
+            }
+            if (idx >= 0) {
+              // Report everything between the match and the top as improperly closed
+              while (stack.length > idx + 1) {
+                const u = stack.pop();
+                errors.push({ line: u.line, col: u.col, message: `<${u.name}> not closed before </${name}>`, type: "error" });
+              }
+              stack.pop();
+            } else {
+              errors.push({ line: pos.line, col: pos.col, message: `Unexpected closing tag </${name}>`, type: "error" });
+            }
+          } else {
+            stack.pop();
+          }
+        }
+      } else if (openTag) {
+        const name = openTag.toLowerCase();
+        if (inRaw) continue;
+        if (VOID_TAGS.has(name) || selfClose === "/") continue;
+        stack.push({ name, line: pos.line, col: pos.col });
+        if (RAW_TEXT_TAGS.has(name)) inRaw = name;
+      }
+    }
+
+    // Anything still open was never closed
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const t = stack[i];
+      errors.push({ line: t.line, col: t.col, message: `Tag <${t.name}> is never closed`, type: "error" });
+    }
+
+    return errors;
+  }
+
+  // ── Problems panel ─────────────────────────────────────────────────────────
+  function updateProblemsPanel(annotations) {
+    if (!annotations.length) {
+      problemsPanel.classList.add("collapsed");
+      problemsChevron.textContent = "▼";
+      problemsTitle.textContent = "Problems";
+      problemsList.innerHTML = "";
+      return;
+    }
+
+    const sorted = [...annotations].sort(
+      (a, b) => a.from.line - b.from.line || a.from.ch - b.from.ch
+    );
+
+    problemsTitle.textContent = `Problems (${annotations.length})`;
+    problemsPanel.classList.remove("collapsed");
+    problemsChevron.textContent = "▲";
+
+    problemsList.innerHTML = sorted.map(a => {
+      const cls  = a.severity === "error" ? "p-error" : "p-warning";
+      const icon = a.severity === "error" ? "✕" : "⚠";
+      return (
+        `<div class="problem-item ${cls}" data-line="${a.from.line}" data-ch="${a.from.ch}">` +
+        `<span class="p-icon ${cls}">${icon}</span>` +
+        `<span class="p-loc">${a.from.line + 1}:${a.from.ch + 1}</span>` +
+        `<span class="p-msg">${escHtml(a.message)}</span>` +
+        `</div>`
+      );
+    }).join("");
+
+    problemsList.querySelectorAll(".problem-item").forEach(item => {
+      item.addEventListener("click", () => {
+        const line = parseInt(item.dataset.line, 10);
+        const ch   = parseInt(item.dataset.ch, 10);
+        if (inputViewMode !== "code") setInputView("code");
+        editor.focus();
+        editor.setCursor(line, ch);
+        editor.scrollIntoView({ line, ch }, 80);
+      });
+    });
+  }
+
+  problemsHeader.addEventListener("click", () => {
+    problemsPanel.classList.toggle("collapsed");
+    problemsChevron.textContent = problemsPanel.classList.contains("collapsed") ? "▼" : "▲";
+  });
+
+  // ── HTMLHint lint annotations (merged with nesting validator) ──────────────
   function htmlAnnotations(text, options, cm) {
     if (!text.trim() || !window.HTMLHint) {
       lintStatus.textContent = "HTML / CSS";
-      lintStatus.className = "";
+      lintStatus.className   = "";
+      updateProblemsPanel([]);
       return [];
     }
+
     let hints;
     try {
       hints = window.HTMLHint.verify(text, {
-        "tag-pair":            true,
-        "attr-lowercase":      true,
-        "id-unique":           true,
-        "src-not-empty":       true,
-        "tag-self-close":      false,
-        "attr-value-not-empty":false,
-        "spec-char-escape":    false,
+        "tag-pair":             false,  // handled by our custom nesting validator
+        "attr-lowercase":       true,
+        "id-unique":            true,
+        "src-not-empty":        true,
+        "tag-self-close":       false,
+        "attr-value-not-empty": false,
+        "spec-char-escape":     false,
       });
     } catch (_) { return []; }
 
+    // Merge HTMLHint hints with nesting errors
+    const nestingErrors = validateNesting(text);
+
     let errN = 0, warnN = 0;
-    const annotations = hints.map(h => {
-      h.type === "error" ? errN++ : warnN++;
-      return {
-        from: CodeMirror.Pos(h.line - 1, h.col - 1),
-        to:   CodeMirror.Pos(h.line - 1, h.col),
-        message:  h.message,
-        severity: h.type,
-      };
-    });
+
+    const annotations = [
+      ...hints.map(h => {
+        h.type === "error" ? errN++ : warnN++;
+        return {
+          from:     CodeMirror.Pos(h.line - 1, h.col - 1),
+          to:       CodeMirror.Pos(h.line - 1, h.col),
+          message:  h.message,
+          severity: h.type,
+        };
+      }),
+      ...nestingErrors.map(e => {
+        errN++;
+        return {
+          from:     CodeMirror.Pos(e.line - 1, e.col - 1),
+          to:       CodeMirror.Pos(e.line - 1, e.col + 20),
+          message:  e.message,
+          severity: "error",
+        };
+      }),
+    ];
 
     if (errN > 0) {
       lintStatus.textContent = `✕ ${errN} error${errN > 1 ? "s" : ""}` +
@@ -520,10 +732,12 @@
       lintStatus.textContent = "✓ No issues";
       lintStatus.className = "status-ok";
     }
+
+    updateProblemsPanel(annotations);
     return annotations;
   }
 
-  // Init CodeMirror
+  // ── Init CodeMirror ─────────────────────────────────────────────────────────
   const editor = CodeMirror.fromTextArea(document.getElementById("input-area"), {
     mode:             "htmlmixed",
     theme:            "dracula",
@@ -538,7 +752,7 @@
     indentWithTabs:   false,
     lineWrapping:     true,
     gutters:          ["CodeMirror-linenumbers", "CodeMirror-lint-markers"],
-    lint:             { delay: 500, getAnnotations: htmlAnnotations },
+    lint:             { delay: 400, getAnnotations: htmlAnnotations },
     extraKeys: {
       "Ctrl-Enter":   () => translate(),
       "Cmd-Enter":    () => translate(),
@@ -561,7 +775,7 @@
     if (inputViewMode === "preview") inputPreviewFrame.srcdoc = val;
   });
 
-  // Format code with js-beautify
+  // ── Format code ─────────────────────────────────────────────────────────────
   function formatCode() {
     const raw = editor.getValue();
     if (!raw.trim() || !window.html_beautify) return;
@@ -585,17 +799,19 @@
 
   btnFormat.addEventListener("click", formatCode);
 
-  // Input view toggle
+  // ── Input view toggle ───────────────────────────────────────────────────────
   function setInputView(mode) {
     inputViewMode = mode;
     if (mode === "code") {
-      cmWrapper.style.display = "";
+      cmWrapper.style.display         = "";
+      problemsPanel.style.display     = "";
       inputPreviewFrame.style.display = "none";
       btnInputCode.classList.add("active");
       btnInputPreview.classList.remove("active");
       requestAnimationFrame(() => { syncEditorHeight(); editor.refresh(); });
     } else {
-      cmWrapper.style.display = "none";
+      cmWrapper.style.display         = "none";
+      problemsPanel.style.display     = "none";
       inputPreviewFrame.style.display = "block";
       btnInputCode.classList.remove("active");
       btnInputPreview.classList.add("active");
@@ -606,10 +822,10 @@
   btnInputCode.addEventListener("click",    () => setInputView("code"));
   btnInputPreview.addEventListener("click", () => setInputView("preview"));
 
-  // Output view toggle
+  // ── Output view toggle ──────────────────────────────────────────────────────
   function setOutputView(mode) {
     outputViewMode = mode;
-    codeView.style.display    = "none";
+    codeView.style.display     = "none";
     previewFrame.style.display = "none";
     errorPanel.classList.remove("visible");
 
@@ -628,23 +844,24 @@
   btnCode.addEventListener("click",    () => setOutputView("code"));
   btnPreview.addEventListener("click", () => { if (translatedHtml) setOutputView("preview"); });
 
-  // Clear
+  // ── Clear ───────────────────────────────────────────────────────────────────
   btnClear.addEventListener("click", () => {
     editor.setValue("");
     inputCount.textContent = "0 chars";
     lintStatus.textContent = "HTML / CSS";
-    lintStatus.className = "";
-    translatedHtml = "";
-    outputPre.innerHTML = `<span style="color:var(--text-dim)">Translated HTML will appear here…</span>`;
+    lintStatus.className   = "";
+    translatedHtml         = "";
+    outputPre.innerHTML    = `<span style="color:var(--text-dim)">Translated HTML will appear here…</span>`;
     outputCount.textContent = "0 chars";
-    previewFrame.srcdoc = "";
+    previewFrame.srcdoc     = "";
     inputPreviewFrame.srcdoc = "";
     errorPanel.classList.remove("visible");
+    updateProblemsPanel([]);
     setOutputView("code");
     setInputView("code");
   });
 
-  // Copy
+  // ── Copy ────────────────────────────────────────────────────────────────────
   btnCopy.addEventListener("click", async () => {
     if (!translatedHtml) return;
     try { await navigator.clipboard.writeText(translatedHtml); }
@@ -660,7 +877,7 @@
     setTimeout(() => { btnCopy.textContent = orig; }, 1500);
   });
 
-  // Translate
+  // ── Translate ───────────────────────────────────────────────────────────────
   btnTranslate.addEventListener("click", translate);
 
   async function translate() {
@@ -741,8 +958,8 @@
 
   function showError(titleText, subtitleText, msg, fixes) {
     translatedHtml = "";
-    outputCount.textContent = "0 chars";
-    codeView.style.display    = "none";
+    outputCount.textContent    = "0 chars";
+    codeView.style.display     = "none";
     previewFrame.style.display = "none";
     outputViewMode = "code";
     btnCode.classList.add("active");
