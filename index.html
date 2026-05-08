@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kido HTML/CSS Translator</title>
+  <title>Kido HTML/CSS Translator V2</title>
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
@@ -395,7 +395,7 @@
 <body>
 
 <header>
-  <h1>Kido <span>HTML/CSS</span> Translator</h1>
+  <h1>Kido <span>HTML/CSS</span> Translator <span style="font-size:0.7em;opacity:0.6">V2</span></h1>
   <div class="lang-controls">
     <label for="src-lang">From</label>
     <select id="src-lang"></select>
@@ -686,9 +686,10 @@
       return [];
     }
 
-    let hints;
+    // HTMLHint — each source in its own try-catch so one failure can't silence the other
+    let hintAnnotations = [];
     try {
-      hints = window.HTMLHint.verify(text, {
+      const hints = window.HTMLHint.verify(text, {
         "tag-pair":             true,
         "attr-lowercase":       true,
         "id-unique":            true,
@@ -697,33 +698,29 @@
         "attr-value-not-empty": false,
         "spec-char-escape":     false,
       });
-    } catch (_) { return []; }
+      hintAnnotations = hints.map(h => ({
+        from:     CodeMirror.Pos(h.line - 1, h.col - 1),
+        to:       CodeMirror.Pos(h.line - 1, h.col),
+        message:  h.message,
+        severity: h.type,
+      }));
+    } catch (_) {}
 
-    // Merge HTMLHint hints with nesting errors
-    const nestingErrors = validateNesting(text);
+    // Custom nesting validator
+    let nestingAnnotations = [];
+    try {
+      nestingAnnotations = validateNesting(text).map(e => ({
+        from:     CodeMirror.Pos(e.line - 1, Math.max(0, e.col - 1)),
+        to:       CodeMirror.Pos(e.line - 1, e.col + 5),
+        message:  e.message,
+        severity: "error",
+      }));
+    } catch (_) {}
+
+    const annotations = [...hintAnnotations, ...nestingAnnotations];
 
     let errN = 0, warnN = 0;
-
-    const annotations = [
-      ...hints.map(h => {
-        h.type === "error" ? errN++ : warnN++;
-        return {
-          from:     CodeMirror.Pos(h.line - 1, h.col - 1),
-          to:       CodeMirror.Pos(h.line - 1, h.col),
-          message:  h.message,
-          severity: h.type,
-        };
-      }),
-      ...nestingErrors.map(e => {
-        errN++;
-        return {
-          from:     CodeMirror.Pos(e.line - 1, e.col - 1),
-          to:       CodeMirror.Pos(e.line - 1, e.col + 20),
-          message:  e.message,
-          severity: "error",
-        };
-      }),
-    ];
+    annotations.forEach(a => a.severity === "error" ? errN++ : warnN++);
 
     if (errN > 0) {
       lintStatus.textContent = `✕ ${errN} error${errN > 1 ? "s" : ""}` +
