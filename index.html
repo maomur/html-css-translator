@@ -677,19 +677,11 @@
     problemsChevron.textContent = problemsPanel.classList.contains("collapsed") ? "▼" : "▲";
   });
 
-  // ── HTMLHint lint annotations (merged with nesting validator) ──────────────
+  // ── HTMLHint annotations — only for CodeMirror's visual markers (wavy underlines) ──
   function htmlAnnotations(text, options, cm) {
-    if (!text.trim() || !window.HTMLHint) {
-      lintStatus.textContent = "HTML / CSS";
-      lintStatus.className   = "";
-      updateProblemsPanel([]);
-      return [];
-    }
-
-    // HTMLHint — each source in its own try-catch so one failure can't silence the other
-    let hintAnnotations = [];
+    if (!text.trim() || !window.HTMLHint) return [];
     try {
-      const hints = window.HTMLHint.verify(text, {
+      return window.HTMLHint.verify(text, {
         "tag-pair":             true,
         "attr-lowercase":       true,
         "id-unique":            true,
@@ -697,30 +689,52 @@
         "tag-self-close":       false,
         "attr-value-not-empty": false,
         "spec-char-escape":     false,
-      });
-      hintAnnotations = hints.map(h => ({
+      }).map(h => ({
         from:     CodeMirror.Pos(h.line - 1, h.col - 1),
         to:       CodeMirror.Pos(h.line - 1, h.col),
         message:  h.message,
         severity: h.type,
       }));
-    } catch (_) {}
+    } catch (_) { return []; }
+  }
 
-    // Custom nesting validator
-    let nestingAnnotations = [];
+  // ── Problems panel + footer — driven directly from editor change, independent of lint addon ──
+  let _valTimer = null;
+  function scheduleValidation(text) {
+    clearTimeout(_valTimer);
+    _valTimer = setTimeout(() => runValidation(text), 400);
+  }
+
+  function runValidation(text) {
+    if (!text.trim()) {
+      lintStatus.textContent = "HTML / CSS";
+      lintStatus.className   = "";
+      updateProblemsPanel([]);
+      return;
+    }
+
+    const raw = [];
+
+    if (window.HTMLHint) {
+      try {
+        window.HTMLHint.verify(text, {
+          "tag-pair":             true,
+          "attr-lowercase":       true,
+          "id-unique":            true,
+          "src-not-empty":        true,
+          "tag-self-close":       false,
+          "attr-value-not-empty": false,
+          "spec-char-escape":     false,
+        }).forEach(h => raw.push({ line: h.line, col: h.col, message: h.message, type: h.type }));
+      } catch (_) {}
+    }
+
     try {
-      nestingAnnotations = validateNesting(text).map(e => ({
-        from:     CodeMirror.Pos(e.line - 1, Math.max(0, e.col - 1)),
-        to:       CodeMirror.Pos(e.line - 1, e.col + 5),
-        message:  e.message,
-        severity: "error",
-      }));
+      validateNesting(text).forEach(e => raw.push(e));
     } catch (_) {}
-
-    const annotations = [...hintAnnotations, ...nestingAnnotations];
 
     let errN = 0, warnN = 0;
-    annotations.forEach(a => a.severity === "error" ? errN++ : warnN++);
+    raw.forEach(e => e.type === "error" ? errN++ : warnN++);
 
     if (errN > 0) {
       lintStatus.textContent = `✕ ${errN} error${errN > 1 ? "s" : ""}` +
@@ -734,8 +748,12 @@
       lintStatus.className = "status-ok";
     }
 
-    updateProblemsPanel(annotations);
-    return annotations;
+    updateProblemsPanel(raw.map(e => ({
+      from:     CodeMirror.Pos(e.line - 1, Math.max(0, e.col - 1)),
+      to:       CodeMirror.Pos(e.line - 1, e.col + 5),
+      message:  e.message,
+      severity: e.type,
+    })));
   }
 
   // ── Init CodeMirror ─────────────────────────────────────────────────────────
@@ -774,6 +792,7 @@
     const val = editor.getValue();
     inputCount.textContent = val.length.toLocaleString() + " chars";
     if (inputViewMode === "preview") inputPreviewFrame.srcdoc = val;
+    scheduleValidation(val);
   });
 
   // ── Format code ─────────────────────────────────────────────────────────────
