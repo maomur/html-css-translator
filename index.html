@@ -581,7 +581,11 @@
       if (closeTag) {
         const name = closeTag.toLowerCase();
         if (inRaw) {
-          if (name === inRaw) inRaw = null;
+          if (name === inRaw) {
+            inRaw = null;
+            // Pop the raw-text tag that was pushed when we opened it
+            if (stack.length > 0 && stack[stack.length - 1].name === name) stack.pop();
+          }
           continue;
         }
         if (stack.length === 0) {
@@ -685,7 +689,7 @@
     let hints;
     try {
       hints = window.HTMLHint.verify(text, {
-        "tag-pair":             false,  // handled by our custom nesting validator
+        "tag-pair":             true,
         "attr-lowercase":       true,
         "id-unique":            true,
         "src-not-empty":        true,
